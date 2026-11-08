@@ -43,6 +43,7 @@
             margin-bottom: 15px;
             padding-bottom: 10px;
             border-bottom: 2px solid #eee;
+            line-height: 1.5;
         }
         .problem-card {
             background: #fafafa;
@@ -56,7 +57,7 @@
             align-items: center;
             margin-bottom: 10px;
             font-weight: bold;
-            color: #0056b3;
+            color: #dc3545;
         }
         .checkbox-wrapper input[type="checkbox"] {
             transform: scale(1.5);
@@ -136,6 +137,7 @@
     let groupedKeys = [];
     let groupedData = {};
     let currentIndex = 0;
+    let totalProblemsCount = 0; // 全問題数を保持する変数
 
     // ファイル読み込み処理
     document.getElementById('fileInput').addEventListener('change', function(e) {
@@ -158,6 +160,7 @@
 
     // データを解説ごとにグループ化
     function processJSON(data) {
+        totalProblemsCount = data.length; // 全問題数を記録
         groupedKeys = [];
         groupedData = {};
         
@@ -167,8 +170,8 @@
                 groupedData[exp] = [];
                 groupedKeys.push(exp);
             }
-            // 内部管理用に _keep フラグを追加（初期値: 残さない）
-            item._keep = item._keep || false;
+            // 内部管理用に _delete フラグを追加（初期値: false = 削除しない）
+            item._delete = item._delete || false;
             groupedData[exp].push(item);
         });
 
@@ -187,9 +190,10 @@
         const currentKey = groupedKeys[currentIndex];
         const items = groupedData[currentKey];
         
-        // ステータス表示
-        document.getElementById('statusInfo').textContent = 
-            `解説: ${currentKey} (${currentIndex + 1} / ${groupedKeys.length})`;
+        // ステータス表示（総問題数と現在のグループ位置を表示）
+        document.getElementById('statusInfo').innerHTML = 
+            `総問題数: ${totalProblemsCount}問<br>
+             解説グループ: ${currentKey} (${currentIndex + 1} / ${groupedKeys.length})`;
 
         // 問題カードの生成
         items.forEach((item, index) => {
@@ -199,8 +203,9 @@
 
             card.innerHTML = `
                 <div class="checkbox-wrapper">
-                    <input type="checkbox" id="keep_${index}" class="input-keep" ${item._keep ? "checked" : ""}>
-                    <label for="keep_${index}" style="margin:0; font-size:1rem; color:inherit; cursor:pointer;">この問題を残す</label>
+                    <!-- deleteフラグがtrueならチェックを入れる -->
+                    <input type="checkbox" id="delete_${index}" class="input-delete" ${item._delete ? "checked" : ""}>
+                    <label for="delete_${index}" style="margin:0; font-size:1rem; color:inherit; cursor:pointer;">この問題を削除する</label>
                 </div>
                 <label>問題文:</label>
                 <textarea class="input-text">${escapeHTML(item["問題文"] || "")}</textarea>
@@ -239,7 +244,7 @@
 
         cards.forEach(card => {
             const idx = card.dataset.index;
-            items[idx]._keep = card.querySelector('.input-keep').checked;
+            items[idx]._delete = card.querySelector('.input-delete').checked;
             items[idx]["問題文"] = card.querySelector('.input-text').value.trim();
             items[idx]["答え"] = card.querySelector('.input-ans').value;
         });
@@ -268,20 +273,20 @@
         saveCurrentState(); // 現在の画面も忘れず保存
         
         const finalData = [];
-        // 全グループを回して _keep が true のものだけ抽出
+        // 全グループを回して _delete が false (チェックなし) のものだけ抽出
         groupedKeys.forEach(key => {
             groupedData[key].forEach(item => {
-                if (item._keep) {
-                    // 出力用に _keep プロパティを削除したクローンを作成
+                if (!item._delete) {
+                    // 出力用に _delete プロパティを削除したクローンを作成
                     const clone = { ...item };
-                    delete clone._keep;
+                    delete clone._delete;
                     finalData.push(clone);
                 }
             });
         });
 
         if (finalData.length === 0) {
-            if(!confirm("残す問題が1つも選択されていません。空のまま保存しますか？")) return;
+            if(!confirm("全ての問題が削除としてチェックされています。空のまま保存しますか？")) return;
         }
 
         // JSONをBlob化してダウンロード
@@ -299,7 +304,7 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        alert(`保存処理を実行しました（${finalData.length}件）。\n端末のダウンロードフォルダを確認してください。`);
+        alert(`保存処理を実行しました。\n総問題数: ${totalProblemsCount}問 → 保存された問題数: ${finalData.length}問\n端末のダウンロードフォルダを確認してください。`);
     }
 
     // XSS対策用
