@@ -45,6 +45,11 @@
             border-bottom: 2px solid #eee;
             line-height: 1.5;
         }
+        .status-info select {
+            font-weight: normal;
+            background-color: #fff;
+            margin-bottom: 0;
+        }
         .problem-card {
             background: #fafafa;
             border: 1px solid #ddd;
@@ -94,7 +99,7 @@
             margin-top: 20px;
         }
         button {
-            padding: 12px 20px;
+            padding: 12px 10px;
             font-size: 1rem;
             border: none;
             border-radius: 6px;
@@ -106,10 +111,13 @@
         }
         .btn-prev { background-color: #6c757d; }
         .btn-next { background-color: #0d6efd; }
-        .btn-save { background-color: #198754; width: 100%; margin: 20px 0 0 0; }
+        .btn-progress { background-color: #ffc107; color: #333; width: 100%; margin-top: 15px; border: 1px solid #d39e00; }
+        .btn-save { background-color: #198754; width: 100%; margin-top: 15px; }
         button:disabled {
             background-color: #cccccc;
+            color: #888;
             cursor: not-allowed;
+            border-color: #aaa;
         }
         .hidden {
             display: none;
@@ -127,14 +135,23 @@
     </div>
 
     <div id="editorSection" class="hidden">
-        <div class="status-info" id="statusInfo"></div>
+        <div class="status-info">
+            <div id="statusText"></div>
+            <!-- グループをプルダウンで直接移動できるようにする機能 -->
+            <select id="groupJump" onchange="jumpToGroup(this.value)"></select>
+        </div>
+        
         <div id="cardsContainer"></div>
         
         <div class="button-group">
             <button id="btnPrev" class="btn-prev" onclick="goPrev()">前へ戻る</button>
             <button id="btnNext" class="btn-next" onclick="goNext()">確定して次へ</button>
         </div>
-        <button id="btnSave" class="btn-save hidden" onclick="saveFile()">編集結果を保存 (ダウンロード)</button>
+        
+        <!-- 途中保存ボタン（常時表示） -->
+        <button id="btnProgress" class="btn-progress" onclick="saveProgress()">途中保存 (削除チェック状態を維持)</button>
+        <!-- 最終保存ボタン（最後まで行くと表示） -->
+        <button id="btnSave" class="btn-save hidden" onclick="saveFile()">最終保存 (削除問題を除外して出力)</button>
     </div>
 </div>
 
@@ -151,8 +168,10 @@
         if (!file) return;
 
         originalFileName = file.name;
+        // 「_途中保存」という文字列がファイル名にあれば取り除く（最終保存時に名前が長くなるのを防ぐため）
+        originalFileName = originalFileName.replace("_途中保存", "");
+
         const reader = new FileReader();
-        
         reader.onload = function(event) {
             try {
                 const data = JSON.parse(event.target.result);
@@ -176,14 +195,38 @@
                 groupedData[exp] = [];
                 groupedKeys.push(exp);
             }
+            // 途中保存データの場合は _delete が既に入っているので引き継がれる
             item._delete = item._delete || false;
             groupedData[exp].push(item);
         });
 
         currentIndex = 0;
+        updateJumpDropdown(); // プルダウンのリストを作成
+
         document.getElementById('fileSection').classList.add('hidden');
         document.getElementById('editorSection').classList.remove('hidden');
         
+        renderCurrentGroup();
+    }
+
+    // ジャンプ用プルダウンの生成
+    function updateJumpDropdown() {
+        const select = document.getElementById('groupJump');
+        select.innerHTML = "";
+        groupedKeys.forEach((key, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            // リストに表示する名前が長すぎる場合は省略
+            const displayKey = key.length > 20 ? key.substring(0, 20) + "..." : key;
+            opt.textContent = `${idx + 1}. ${displayKey}`;
+            select.appendChild(opt);
+        });
+    }
+
+    // 指定のグループへジャンプ
+    function jumpToGroup(idx) {
+        saveCurrentState(); // 移動前の画面の状態を保存
+        currentIndex = parseInt(idx, 10);
         renderCurrentGroup();
     }
 
@@ -195,9 +238,12 @@
         const currentKey = groupedKeys[currentIndex];
         const items = groupedData[currentKey];
         
-        document.getElementById('statusInfo').innerHTML = 
+        document.getElementById('statusText').innerHTML = 
             `総問題数: ${totalProblemsCount}問<br>
-             解説グループ: ${currentKey} (${currentIndex + 1} / ${groupedKeys.length})`;
+             進捗: ${currentIndex + 1} / ${groupedKeys.length} グループ`;
+        
+        // プルダウンの選択状態を同期
+        document.getElementById('groupJump').value = currentIndex;
 
         items.forEach((item, index) => {
             const card = document.createElement('div');
@@ -252,6 +298,8 @@
     function saveCurrentState() {
         const container = document.getElementById('cardsContainer');
         const cards = container.querySelectorAll('.problem-card');
+        if (cards.length === 0) return; // まだ描画されていない場合はスキップ
+
         const currentKey = groupedKeys[currentIndex];
         const items = groupedData[currentKey];
 
@@ -286,6 +334,34 @@
         }
     }
 
+    // --- 途中保存の処理（チェック状態もすべて残して保存） ---
+    function saveProgress() {
+        saveCurrentState(); // 現在の画面も忘れず保存
+        
+        const progressData = [];
+        groupedKeys.forEach(key => {
+            groupedData[key].forEach(item => {
+                progressData.push(item); // 削除除外せずに全て入れる（_deleteフラグもそのまま）
+            });
+        });
+
+        const jsonStr = JSON.stringify(progressData, null, 4);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        const newName = originalFileName.replace(".json", "_途中保存.json");
+        a.download = newName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert(`【途中保存】を実行しました（全 ${progressData.length}問）。\n次回はこのファイルをアップロードし、「グループ移動」のプルダウンから続きのグループを選択して再開してください。`);
+    }
+
+    // --- 最終保存の処理（削除チェックされたものを除外して保存） ---
     function saveFile() {
         saveCurrentState();
         
@@ -294,7 +370,7 @@
             groupedData[key].forEach(item => {
                 if (!item._delete) {
                     const clone = { ...item };
-                    delete clone._delete;
+                    delete clone._delete; // 出力データからは不要な管理プロパティを消す
                     finalData.push(clone);
                 }
             });
@@ -317,7 +393,7 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        alert(`保存処理を実行しました。\n総問題数: ${totalProblemsCount}問 → 保存された問題数: ${finalData.length}問\n端末のダウンロードフォルダを確認してください。`);
+        alert(`【最終保存】を実行しました。\n総問題数: ${totalProblemsCount}問 → 保存された問題数: ${finalData.length}問\n端末のダウンロードフォルダを確認してください。`);
     }
 
     function escapeHTML(str) {
