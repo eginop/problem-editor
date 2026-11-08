@@ -68,6 +68,7 @@
             margin-bottom: 5px;
             font-size: 0.9rem;
             color: #666;
+            font-weight: bold;
         }
         textarea, select {
             width: 100%;
@@ -78,9 +79,14 @@
             font-size: 1rem;
             margin-bottom: 10px;
         }
-        textarea {
+        .input-text {
             resize: vertical;
             min-height: 80px;
+        }
+        .input-keywords {
+            resize: vertical;
+            min-height: 50px;
+            font-size: 0.9rem;
         }
         .button-group {
             display: flex;
@@ -137,7 +143,7 @@
     let groupedKeys = [];
     let groupedData = {};
     let currentIndex = 0;
-    let totalProblemsCount = 0; // 全問題数を保持する変数
+    let totalProblemsCount = 0;
 
     // ファイル読み込み処理
     document.getElementById('fileInput').addEventListener('change', function(e) {
@@ -160,7 +166,7 @@
 
     // データを解説ごとにグループ化
     function processJSON(data) {
-        totalProblemsCount = data.length; // 全問題数を記録
+        totalProblemsCount = data.length;
         groupedKeys = [];
         groupedData = {};
         
@@ -170,7 +176,6 @@
                 groupedData[exp] = [];
                 groupedKeys.push(exp);
             }
-            // 内部管理用に _delete フラグを追加（初期値: false = 削除しない）
             item._delete = item._delete || false;
             groupedData[exp].push(item);
         });
@@ -185,40 +190,49 @@
     // 現在のグループの画面描画
     function renderCurrentGroup() {
         const container = document.getElementById('cardsContainer');
-        container.innerHTML = ""; // クリア
+        container.innerHTML = ""; 
         
         const currentKey = groupedKeys[currentIndex];
         const items = groupedData[currentKey];
         
-        // ステータス表示（総問題数と現在のグループ位置を表示）
         document.getElementById('statusInfo').innerHTML = 
             `総問題数: ${totalProblemsCount}問<br>
              解説グループ: ${currentKey} (${currentIndex + 1} / ${groupedKeys.length})`;
 
-        // 問題カードの生成
         items.forEach((item, index) => {
             const card = document.createElement('div');
             card.className = "problem-card";
-            card.dataset.index = index; // 保存時に紐付けるためのインデックス
+            card.dataset.index = index;
+
+            // キーワード配列をカンマ区切りの文字列に変換して表示
+            let keywordStr = "";
+            if (Array.isArray(item["キーワード"])) {
+                keywordStr = item["キーワード"].join(", ");
+            } else if (item["キーワード"]) {
+                keywordStr = item["キーワード"];
+            }
 
             card.innerHTML = `
                 <div class="checkbox-wrapper">
-                    <!-- deleteフラグがtrueならチェックを入れる -->
                     <input type="checkbox" id="delete_${index}" class="input-delete" ${item._delete ? "checked" : ""}>
                     <label for="delete_${index}" style="margin:0; font-size:1rem; color:inherit; cursor:pointer;">この問題を削除する</label>
                 </div>
+                
                 <label>問題文:</label>
                 <textarea class="input-text">${escapeHTML(item["問題文"] || "")}</textarea>
+                
                 <label>答え:</label>
                 <select class="input-ans">
                     <option value="◯" ${item["答え"] === "◯" ? "selected" : ""}>◯</option>
                     <option value="×" ${item["答え"] === "×" ? "selected" : ""}>×</option>
                 </select>
+                
+                <label>キーワード (カンマ区切り):</label>
+                <textarea class="input-keywords" placeholder="例: 建築, コンクリート, 杭">${escapeHTML(keywordStr)}</textarea>
             `;
             container.appendChild(card);
         });
 
-        // ボタンの制御
         document.getElementById('btnPrev').disabled = (currentIndex === 0);
         
         if (currentIndex === groupedKeys.length - 1) {
@@ -231,11 +245,10 @@
             document.getElementById('btnSave').classList.add('hidden');
         }
         
-        // 画面上部へスクロール
         window.scrollTo(0, 0);
     }
 
-    // 画面の入力状態をメモリ（groupedData）に保存する
+    // 画面の入力状態をメモリに保存する
     function saveCurrentState() {
         const container = document.getElementById('cardsContainer');
         const cards = container.querySelectorAll('.problem-card');
@@ -247,10 +260,16 @@
             items[idx]._delete = card.querySelector('.input-delete').checked;
             items[idx]["問題文"] = card.querySelector('.input-text').value.trim();
             items[idx]["答え"] = card.querySelector('.input-ans').value;
+            
+            // キーワード入力欄の文字列をカンマで分割し、空白を除去して配列に戻す
+            const keywordInput = card.querySelector('.input-keywords').value;
+            const keywordArray = keywordInput.split(',')
+                                             .map(k => k.trim())
+                                             .filter(k => k.length > 0);
+            items[idx]["キーワード"] = keywordArray;
         });
     }
 
-    // 「前へ」処理
     function goPrev() {
         if (currentIndex > 0) {
             saveCurrentState();
@@ -259,7 +278,6 @@
         }
     }
 
-    // 「次へ」処理
     function goNext() {
         if (currentIndex < groupedKeys.length - 1) {
             saveCurrentState();
@@ -268,16 +286,13 @@
         }
     }
 
-    // 保存（ダウンロード）処理
     function saveFile() {
-        saveCurrentState(); // 現在の画面も忘れず保存
+        saveCurrentState();
         
         const finalData = [];
-        // 全グループを回して _delete が false (チェックなし) のものだけ抽出
         groupedKeys.forEach(key => {
             groupedData[key].forEach(item => {
                 if (!item._delete) {
-                    // 出力用に _delete プロパティを削除したクローンを作成
                     const clone = { ...item };
                     delete clone._delete;
                     finalData.push(clone);
@@ -289,14 +304,12 @@
             if(!confirm("全ての問題が削除としてチェックされています。空のまま保存しますか？")) return;
         }
 
-        // JSONをBlob化してダウンロード
         const jsonStr = JSON.stringify(finalData, null, 4);
         const blob = new Blob([jsonStr], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         
         const a = document.createElement("a");
         a.href = url;
-        // 例: !01_foundation.json -> !01_foundation_edited.json
         const newName = originalFileName.replace(".json", "_edited.json");
         a.download = newName;
         document.body.appendChild(a);
@@ -307,7 +320,6 @@
         alert(`保存処理を実行しました。\n総問題数: ${totalProblemsCount}問 → 保存された問題数: ${finalData.length}問\n端末のダウンロードフォルダを確認してください。`);
     }
 
-    // XSS対策用
     function escapeHTML(str) {
         return str.replace(/[&<>'"]/g, 
             tag => ({
