@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>問題ファイル編集アプリ</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            margin: 0;
+            padding: 10px;
+            font-size: 16px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 1.2rem;
+            text-align: center;
+            margin-top: 0;
+        }
+        .file-input-wrapper {
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fafafa;
+        }
+        .status-info {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+        .problem-card {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #0056b3;
+        }
+        .checkbox-wrapper input[type="checkbox"] {
+            transform: scale(1.5);
+            margin-right: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        textarea, select {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 1rem;
+            margin-bottom: 10px;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            flex: 1;
+            margin: 0 5px;
+            color: #fff;
+        }
+        .btn-prev { background-color: #6c757d; }
+        .btn-next { background-color: #0d6efd; }
+        .btn-save { background-color: #198754; width: 100%; margin: 20px 0 0 0; }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>問題エディタ</h1>
+    
+    <div class="file-input-wrapper" id="fileSection">
+        <label for="fileInput">JSONファイルを選択してください</label>
+        <input type="file" id="fileInput" accept=".json">
+    </div>
+
+    <div id="editorSection" class="hidden">
+        <div class="status-info" id="statusInfo"></div>
+        <div id="cardsContainer"></div>
+        
+        <div class="button-group">
+            <button id="btnPrev" class="btn-prev" onclick="goPrev()">前へ戻る</button>
+            <button id="btnNext" class="btn-next" onclick="goNext()">確定して次へ</button>
+        </div>
+        <button id="btnSave" class="btn-save hidden" onclick="saveFile()">編集結果を保存 (ダウンロード)</button>
+    </div>
+</div>
+
+<script>
+    let originalFileName = "";
+    let groupedKeys = [];
+    let groupedData = {};
+    let currentIndex = 0;
+
+    // ファイル読み込み処理
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        originalFileName = file.name;
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            try {
+                const data = JSON.parse(event.target.result);
+                processJSON(data);
+            } catch (err) {
+                alert("JSONの読み込みに失敗しました。ファイル形式を確認してください。");
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    // データを解説ごとにグループ化
+    function processJSON(data) {
+        groupedKeys = [];
+        groupedData = {};
+        
+        data.forEach(item => {
+            const exp = item["解説"] || "（解説なし）";
+            if (!groupedData[exp]) {
+                groupedData[exp] = [];
+                groupedKeys.push(exp);
+            }
+            // 内部管理用に _keep フラグを追加（初期値: 残さない）
+            item._keep = item._keep || false;
+            groupedData[exp].push(item);
+        });
+
+        currentIndex = 0;
+        document.getElementById('fileSection').classList.add('hidden');
+        document.getElementById('editorSection').classList.remove('hidden');
+        
+        renderCurrentGroup();
+    }
+
+    // 現在のグループの画面描画
+    function renderCurrentGroup() {
+        const container = document.getElementById('cardsContainer');
+        container.innerHTML = ""; // クリア
+        
+        const currentKey = groupedKeys[currentIndex];
+        const items = groupedData[currentKey];
+        
+        // ステータス表示
+        document.getElementById('statusInfo').textContent = 
+            `解説: ${currentKey} (${currentIndex + 1} / ${groupedKeys.length})`;
+
+        // 問題カードの生成
+        items.forEach((item, index) => {
+            const card = document.createElement('div');
+            card.className = "problem-card";
+            card.dataset.index = index; // 保存時に紐付けるためのインデックス
+
+            card.innerHTML = `
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="keep_${index}" class="input-keep" ${item._keep ? "checked" : ""}>
+                    <label for="keep_${index}" style="margin:0; font-size:1rem; color:inherit; cursor:pointer;">この問題を残す</label>
+                </div>
+                <label>問題文:</label>
+                <textarea class="input-text">${escapeHTML(item["問題文"] || "")}</textarea>
+                <label>答え:</label>
+                <select class="input-ans">
+                    <option value="◯" ${item["答え"] === "◯" ? "selected" : ""}>◯</option>
+                    <option value="×" ${item["答え"] === "×" ? "selected" : ""}>×</option>
+                </select>
+            `;
+            container.appendChild(card);
+        });
+
+        // ボタンの制御
+        document.getElementById('btnPrev').disabled = (currentIndex === 0);
+        
+        if (currentIndex === groupedKeys.length - 1) {
+            document.getElementById('btnNext').textContent = "最後です";
+            document.getElementById('btnNext').disabled = true;
+            document.getElementById('btnSave').classList.remove('hidden');
+        } else {
+            document.getElementById('btnNext').textContent = "確定して次へ";
+            document.getElementById('btnNext').disabled = false;
+            document.getElementById('btnSave').classList.add('hidden');
+        }
+        
+        // 画面上部へスクロール
+        window.scrollTo(0, 0);
+    }
+
+    // 画面の入力状態をメモリ（groupedData）に保存する
+    function saveCurrentState() {
+        const container = document.getElementById('cardsContainer');
+        const cards = container.querySelectorAll('.problem-card');
+        const currentKey = groupedKeys[currentIndex];
+        const items = groupedData[currentKey];
+
+        cards.forEach(card => {
+            const idx = card.dataset.index;
+            items[idx]._keep = card.querySelector('.input-keep').checked;
+            items[idx]["問題文"] = card.querySelector('.input-text').value.trim();
+            items[idx]["答え"] = card.querySelector('.input-ans').value;
+        });
+    }
+
+    // 「前へ」処理
+    function goPrev() {
+        if (currentIndex > 0) {
+            saveCurrentState();
+            currentIndex--;
+            renderCurrentGroup();
+        }
+    }
+
+    // 「次へ」処理
+    function goNext() {
+        if (currentIndex < groupedKeys.length - 1) {
+            saveCurrentState();
+            currentIndex++;
+            renderCurrentGroup();
+        }
+    }
+
+    // 保存（ダウンロード）処理
+    function saveFile() {
+        saveCurrentState(); // 現在の画面も忘れず保存
+        
+        const finalData = [];
+        // 全グループを回して _keep が true のものだけ抽出
+        groupedKeys.forEach(key => {
+            groupedData[key].forEach(item => {
+                if (item._keep) {
+                    // 出力用に _keep プロパティを削除したクローンを作成
+                    const clone = { ...item };
+                    delete clone._keep;
+                    finalData.push(clone);
+                }
+            });
+        });
+
+        if (finalData.length === 0) {
+            if(!confirm("残す問題が1つも選択されていません。空のまま保存しますか？")) return;
+        }
+
+        // JSONをBlob化してダウンロード
+        const jsonStr = JSON.stringify(finalData, null, 4);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        // 例: !01_foundation.json -> !01_foundation_edited.json
+        const newName = originalFileName.replace(".json", "_edited.json");
+        a.download = newName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert(`保存処理を実行しました（${finalData.length}件）。\n端末のダウンロードフォルダを確認してください。`);
+    }
+
+    // XSS対策用
+    function escapeHTML(str) {
+        return str.replace(/[&<>'"]/g, 
+            tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag] || tag)
+        );
+    }
+</script>
+
+</body>
+</html>
